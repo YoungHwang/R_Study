@@ -1,0 +1,508 @@
+---
+title: "기업리뷰 분석 2"
+output: html_notebook
+---
+
+라이브러리를 로딩한다. 
+```{r}
+rm(list=ls())
+library(tidyverse)
+library(stringr)
+library(stringi)
+library(lubridate)
+library(magrittr)
+```
+
+  
+그래프 제목으로 자주 사용할 회사이름을 지정합니다. 
+```{r}
+compNm <- '삼성화재'
+```
+
+RDS 파일을 읽습니다. 
+```{r}
+dt <- readRDS(file = 'D:/dev/src/R/kevin/company/Company_Review_Data_삼성화재해상보험.RDS')
+dt
+
+names(dt) <- c("회사이름","코드","3","분야","재직상태", "지역", "등록일자", '승진기회',  '복지급여', '워라밸', '사내문화', '경영진', '별점평가', '14','15', '16','성장예상','추천여부')
+```
+
+
+별점을 1~5점으로 환산합니다.
+```{r}
+dt[, 8:13] <- sapply(X = dt[, 8:13], FUN = function(x) x / 20)
+
+# 추천여부 컬럼을 '추천'과 '비추'로 변환합니다.
+dt$`추천여부` <- str_extract(string = dt$`추천여부`, pattern = '추천(?= )')
+dt$`추천여부`[is.na(x = dt$`추천여부`) == TRUE] <- '비추'
+dt$`추천여부`
+
+# 등록일자를 날짜형 벡터로 변환합니다.
+dt$`등록일자` <- as.Date(x = dt$`등록일자`, format = '%Y/%m/%d')
+
+# 등록연도 컬럼을 추가합니다. 
+dt$`등록연도` <- year(dt$`등록일자`)
+
+
+```
+
+
+나만의 ggplot 설정을 지정합니다.
+```{r}
+mytheme <- theme(
+  panel.grid = element_blank(), 
+  panel.background = element_rect(fill = 'white', color = 'white', size = 1.2), 
+  plot.background = element_blank(), 
+  plot.title = element_text(family = 'NanumGothic', face = 'bold', hjust = 0.5, size = 14),
+  axis.title = element_text(family = 'NanumGothic'), 
+  axis.text.x = element_text(size = 10, face = 'bold'), 
+  axis.text.y = element_text(family = 'NanumGothic'), 
+  axis.ticks = element_blank(), 
+  strip.text.x = element_text(size = 10, face = 'bold', family = 'NanumGothic'), 
+  strip.text.y = element_text(size = 10, face = 'bold', angle = 270, family = 'NanumGothic'), 
+  strip.background.y = element_rect(fill = 'gray80', color = 'white'),
+  legend.title = element_text(family = 'NanumGothic'),
+  legend.text = element_text(family = 'NanumGothic'),
+  legend.position = 'bottom')
+```
+
+
+그래프를 그린다
+```{r}
+# 추천/비추 여부 막대그래프를 그립니다.
+drawBarPlot <- function(data, workGb, var) {
+  
+  # 빈도테이블을 생성합니다. 
+  tbl <- data[data$`재직상태` == workGb, c('회사이름', var)] %>% table() %>% t()
+
+  # 막대그래프를 그립니다. 
+  bp <- barplot(height = tbl, 
+                ylim = c(0, max(tbl)*1.25), 
+                names.arg = rownames(x = tbl),
+                beside = TRUE, 
+                # legend = TRUE, 
+                main = str_c(workGb, var, sep = ' ') )
+  
+  # 빈도수를 추가합니다. 
+  text(x = bp, y = tbl, labels = tbl, pos = 3)
+}
+
+# 그래픽 파라미터를 설정합니다. 
+par(mfrow = c(2, 2), family = 'NanumGothic', mar = c(5, 4, 4, 2))
+
+# 막대그래프를 그립니다. 
+drawBarPlot(data = dt, workGb = '전직원', var = '추천여부')
+drawBarPlot(data = dt, workGb = '전직원', var = '성장예상')
+drawBarPlot(data = dt, workGb = '현직원', var = '추천여부')
+drawBarPlot(data = dt, workGb = '현직원', var = '성장예상')
+
+```
+
+
+카이제곱 검정
+```{r}
+library(descr)
+
+# 카이제곱 검정을 위한 사용자 정의 함수를 생성합니다. 
+chisqTest <- function(var1, var2) {
+  
+  # 변수를 설정합니다. 
+  v1 <- eval(expr = parse(text = str_c('dt', var1, sep = '$')))
+  v2 <- eval(expr = parse(text = str_c('dt', var2, sep = '$')))
+  
+  # 빈도테이블을 생성합니다. 
+  tbl <- table(v1, v2)
+  
+  # 교차테이블을 생성합니다. 
+  CrossTable(x = tbl, 
+             expected = TRUE, 
+             prop.r = FALSE, 
+             prop.c = FALSE, 
+             prop.t = FALSE, 
+             prop.chisq = FALSE) %>% 
+    print()
+  
+  # 카이제곱 검정을 실시합니다. 
+  chisq.test(x = tbl) %>% print()
+}
+
+# 재직상태 * 성장예상
+chisqTest(var1 = '재직상태', var2 = '성장예상')
+##    Cell Contents 
+## |-------------------------|
+## |                       N | 
+## |              Expected N | 
+## |-------------------------|
+## 
+## =============================
+##           v2
+## v1        비슷   성장   Total
+## -----------------------------
+## 전직원      64     64     128
+##           60.8   67.2        
+## -----------------------------
+## 현직원      60     73     133
+##           63.2   69.8        
+## -----------------------------
+## Total      124    137     261
+## =============================
+## 
+##  Pearson's Chi-squared test with Yates' continuity correction
+## 
+## data:  tbl
+## X-squared = 0.44411, df = 1, p-value = 0.5051
+# 재직상태 * 추천여부
+
+chisqTest(var1 = '재직상태', var2 = '추천여부')
+##    Cell Contents 
+## |-------------------------|
+## |                       N | 
+## |              Expected N | 
+## |-------------------------|
+## 
+## =============================
+##           v2
+## v1        비추   추천   Total
+## -----------------------------
+## 전직원      62     77     139
+##           57.8   81.2        
+## -----------------------------
+## 현직원      54     86     140
+##           58.2   81.8        
+## -----------------------------
+## Total      116    163     279
+## =============================
+## 
+##  Pearson's Chi-squared test with Yates' continuity correction
+## 
+## data:  tbl
+## X-squared = 0.81148, df = 1, p-value = 0.3677
+
+```
+
+연도별 성장예상 및 추천여부 변화
+
+```{r}
+
+# 연도별 현황을 확인합니다. 
+drawBarLinePlot <- function(data, workGb, var) {
+  
+  # 등록연도가 없는 행을 삭제합니다. 
+  data <- data[complete.cases(data$`등록연도`), ]
+  
+  # 빈도테이블을 생성합니다. 
+  tbl <- data %>% 
+    dplyr::filter(`재직상태` == workGb & !is.na(eval(expr = parse(text = var)))) %>% 
+    select(c(`등록연도`, var)) %>% 
+    group_by(`등록연도`, eval(expr = parse(text = var))) %>% 
+    summarize(`빈도` = n()) %>% 
+    mutate(`비중` = (`빈도` / sum(`빈도`) * 100) %>% round(digits = 1L)) 
+  
+  # 두 번째 컬럼명을 var로 변경합니다. 
+  colnames(x = tbl)[2] <- var
+  
+  # 홀수행의 비중을 NA로 치환합니다. 
+  rowNums <- seq(from = 1, to = nrow(x = tbl), by = 2)
+  tbl$`비중`[rowNums] <- NA
+  
+  # ggplot() 함수를 이용하여 막대그래프를 그립니다.
+  ggplot(data = tbl, 
+         mapping = aes_string(x = '등록연도', y = '빈도', fill = var)) + 
+    geom_bar(stat = 'identity', position = 'dodge') + 
+    geom_text(mapping = aes(label = `빈도`), 
+              position = position_dodge(width = 0.9), 
+              vjust = -1) + 
+    geom_line(mapping = aes_string(x = '등록연도', y = '비중', color = var, group = var), 
+              size = 1.2, 
+              stat = 'identity', 
+              position = position_dodge(width = 0.9)) +
+    geom_point(mapping = aes_string(x = '등록연도', y = '비중', color = var, group = var), 
+              shape = 21, 
+              fill = 'white', 
+              stroke = 2.0, 
+              size = 2.4, 
+              stat = 'identity', 
+              position = position_dodge(width = 0.9)) + 
+    geom_text(mapping = aes(y = `비중`, label = `비중`), 
+              fontface = 'bold', 
+              position = position_dodge(width = 0.9), 
+              vjust = -1.5,
+              hjust = 0.5) + 
+    coord_cartesian(ylim = c(0, max(tbl$`빈도`, tbl$`비중`, na.rm = TRUE) * 1.1)) +
+    scale_fill_manual(values = c('gray80', 'gray50')) + 
+    scale_color_manual(values = c('black', 'red')) + 
+    ggtitle(label = str_c('연도별', workGb, var, sep = ' ')) + 
+    mytheme + 
+    theme(axis.title = element_blank())
+}
+
+```
+
+
+```{r warning=FALSE}
+# 연도별 현황을 그립니다. 
+drawBarLinePlot(data = dt, workGb = '전직원', var = '성장예상')
+drawBarLinePlot(data = dt, workGb = '전직원', var = '추천여부')
+drawBarLinePlot(data = dt, workGb = '현직원', var = '성장예상')
+drawBarLinePlot(data = dt, workGb = '현직원', var = '추천여부')
+```
+
+
+
+재직상태별 별점 비중
+
+```{r}
+# 재직상태에 따른 별점평가(총점) 빈도수를 확인합니다. 
+pts <- table(dt$`재직상태`, dt$`별점평가`) %>% 
+  set_colnames(value = str_c('별점', 1:5)) %>% 
+  as.data.frame() %>% 
+  set_colnames(value = c('재직상태', '별점구분', '빈도수'))
+```
+
+```{r message=FALSE}
+# 필요한 패키지를 불러옵니다. 
+# JLutils 설치 할려면 -> https://github.com/larmarange/JLutils 에 설명되어있음
+library(RColorBrewer)
+library(JLutils)
+
+```
+
+```{r}
+# 나만의 팔레트를 생성합니다. 
+mypal <- brewer.pal(n = 9, name = 'Greys')
+# 그래프를 그립니다. 
+ggplot(data = pts) +
+  aes(x = `재직상태`, fill = `별점구분`, weight = `빈도수`) + 
+  geom_bar(position = 'fill', color = 'gray80') + 
+  geom_text(stat = 'fill_labels') + 
+  scale_fill_manual(values = mypal[3:7]) + 
+  ggtitle(label = '삼성화재 전/현직원 별점평가 비중') + 
+  mytheme + 
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(family = 'NanumGothic'), 
+        axis.text.y = element_blank())
+```
+
+레이더 차트 그리기
+```{r message=FALSE}
+# 필요한 패키지를 불러옵니다. 
+library(fmsb)
+```
+
+```{r}
+# 평균 별점 데이터 프레임을 생성합니다. 
+dt4radar1 <- dt %>% 
+  dplyr::summarize(
+    `전체평가` = mean(`별점평가`),
+    `승진기회` = mean(`승진기회`),
+    `복지급여` = mean(`복지급여`), 
+    `워라밸` = mean(`워라밸`), 
+    `사내문화` = mean(`사내문화`), 
+    `경영진` = mean(`경영진`)) %>% 
+  as.data.frame() 
+# 결과를 출력합니다. 
+print(x = dt4radar1)
+# 그래픽 파라미터를 설정합니다. 
+par(mfrow = c(1, 1), mar = c(2, 1, 2, 1), family = 'NanumGothic')
+# 레이더 차트를 그립니다. 
+radarchart(df = rbind(5, 1, dt4radar1), 
+           axistype = 1, 
+           seg = 4, 
+           pty = 19, 
+           pcol = rgb(red = 51/255, green = 0/255, blue = 255/255, alpha = 1.0), 
+           plty = 1, 
+           plwd = 2, 
+           #pdensity = 10, 
+           #pangle = 60, 
+           pfcol = rgb(red = 51/255, green = 0/255, blue = 255/255, alpha = 0.2), 
+           cglty = 1, 
+           cglwd = 2, 
+           cglcol = 'grey80', 
+           axislabcol = 'grey30', 
+           title = str_c(compNm, '의 평균 별점'), 
+           vlcex = 1.2, 
+           caxislabels = seq(from = 1, to = 5, by = 1) )
+```
+
+
+```{r}
+# 전/현직원의 평균 별점을 비교합니다. 
+dt4radar2 <- dt %>% 
+  group_by(`재직상태`) %>% 
+  dplyr::summarize(
+    `전체평가` = mean(`별점평가`),
+    `승진기회` = mean(`승진기회`),
+    `복지급여` = mean(`복지급여`), 
+    `워라밸` = mean(`워라밸`), 
+    `사내문화` = mean(`사내문화`), 
+    `경영진` = mean(`경영진`)) %>% 
+  as.data.frame() 
+# 별점 평균을 확인합니다. 
+print(x = dt4radar2)
+# 재직상태별 테두리와 채우기 색을 설정합니다. 
+colorLines <- c(rgb(red = 255/255, green = 0/255, blue = 0/255, alpha = 1.0), 
+                rgb(red = 51/255, green = 0/255, blue = 255/255, alpha = 1.0))
+colorFills <- c(rgb(red = 255/255, green = 0/255, blue = 0/255, alpha = 0.2), 
+                rgb(red = 51/255, green = 0/255, blue = 255/255, alpha = 0.2))
+# 재직상태별 레이터 그래프를 하나의 하나의 그래프로 그립니다. 
+radarchart(df = rbind(5, 1, dt4radar2[, 2:7]),
+           axistype = 1,
+           seg = 4, 
+           pty = 19, 
+           pcol = colorLines, 
+           plty = 1, 
+           plwd = 2, 
+           #pdensity = 10, 
+           #pangle = 60, 
+           pfcol = colorFills, 
+           cglty = 1, 
+           cglwd = 2, 
+           cglcol = 'grey80', 
+           axislabcol = 'grey30', 
+           title = '재직상태별 평균 별점 비교',
+           vlcex = 1.2,
+           caxislabels = seq(from = 1, to = 5, by = 1) )
+
+# 범주를 추가합니다. 
+legend(x = 0.8,
+       y = 1.4,
+       legend = dt4radar2$`재직상태`,
+       bty = 'n',
+       pch = 20,
+       col = colorLines,
+       text.col = 'grey30',
+       cex = 1,
+       pt.cex = 2)
+```
+
+### 의사결정나무를 활용한 추천모형
+
+```{r}
+# 필요한 컬럼만 선택하여 데이터셋을 생성합니다. 
+dt <- dt %>% select(c('승진기회', '복지급여', '워라밸', '사내문화', '경영진', '추천여부'))
+# 재현 가능하도록 시드를 생성합니다. 
+set.seed(seed = 123)
+# 전체 데이터를 임의로 샘플링하기 위해 다음과 같이 처리합니다. 
+# 훈련셋을 70%, 시험셋을 30%로 할당합니다. 
+idx <- sample(x = 2, size = nrow(x = dt), prob = c(0.7, 0.3), replace = TRUE)
+# idx가 1일 때 훈련셋(trset), 2일 때 시험셋(teset)에 할당됩니다.
+trset <- dt[idx == 1, ]
+teset <- dt[idx == 2, ]
+cat('The number of trset is', nrow(x = trset), '!\n')
+cat('The number of teset is', nrow(x = teset), '!\n')
+# 훈련용, 시험용 데이터셋의 목표변수 비중을 확인합니다.
+rbind(dt$`추천여부` %>% table() %>% prop.table() %>% t(), 
+      trset$`추천여부` %>% table() %>% prop.table() %>% t(), 
+      teset$`추천여부` %>% table() %>% prop.table() %>% t()) %>% 
+  `*`(100) %>% 
+  round(digits = 2L) %>% 
+  set_rownames(c('전체', '훈련셋', '시험셋')) %>% 
+  print()
+
+```
+
+### 가지치기 전 나무모형 
+
+```{r message=FALSE}
+# 필요한 패키지를 불러옵니다. 
+library(rpart)
+library(rpart.plot)
+library(caret)
+```
+
+```{r}
+# 의사결정나무 알고리즘을 이용하여 추천 분류모형을 적합합니다. 
+fit <- rpart(formula = `추천여부` ~ ., 
+             data = trset, 
+             method = 'class', 
+             parms = list(split = 'gini'),
+             control = rpart.control(
+               minsplit = 20, 
+               cp = 0.01, 
+               maxdepth = 10))
+# 그래픽 파라미터를 설정합니다. 
+par(mfrow = c(1, 1), mar = c(5, 4, 4, 2), family = 'NanumGothic')
+# 나무모형을 출력합니다.
+print(x = fit)
+rpart.plot(x = fit, main = '가지치기 전 추천모형')
+```
+
+
+
+```{r}
+# 비용복잡도(Cost Complexity) 표를 출력합니다. 
+printcp(x = fit)
+# 교차확인 상대오차 도표를 확인합니다. 
+plotcp(x = fit)
+#abline(h = fit$cptable[, 'xerror'] %>% min(), col = 'red', lty = 2)
+abline(h = min(fit$cptable[, 'xerror']), col = 'red', lty = 2)
+# xerror이 가장 낮을 때의 비용복잡도 파라미터를 구합니다. 
+bestCP <- fit$cptable[which.min(fit$cptable[ , 'xerror']), 'CP']
+# 가지치기(pruning)를 합니다. 
+prn <- prune.rpart(tree = fit, cp = bestCP)
+# 가지치기 후 나무모양을 출력합니다.
+print(x = prn)
+rpart.plot(x = prn, main = '가지치기 후 추천모형')
+```
+
+
+
+
+
+### 분류모형의 성능 평가 
+
+### 혼동행렬(Confusion Matrix)을 이용한 성능 평가 
+
+```{r message=FALSE}
+# 필요한 패키지를 불러옵니다. 
+library(e1071)
+```
+
+```{r}
+# 실제값을 지정합니다. 
+real <- teset$`추천여부`
+# 시험셋으로 추정값을 생성합니다. 
+pred <- predict(object = prn, newdata = teset, type = 'class')
+# 혼동행렬을 사용하여 모형의 분류 성능을 파악합니다. 
+confusionMatrix(table(data = pred, reference = real), positive = '추천')
+```
+
+
+
+
+```{r message=FALSE}
+# 필요한 패키지를 불러옵니다. 
+library(MLmetrics)
+```
+
+```{r}
+# F1 score를 확인합니다. 
+cat('F1 score :', F1_Score(y_true = real, y_pred = pred, positive = '추천'), '\n')
+```
+
+
+```{r message=FALSE}
+# ROC curve와 AUROC에 필요한 패키지를 불러옵니다. 
+library(ROCR)
+library(pROC)
+```
+
+
+```{r}
+# ROC 커브를 그려서 분류 성능을 확인합니다.
+# 추정값 및 실제값이 범주형인 경우, 숫자 벡터로 변환합니다. 
+predObj <- prediction(predictions = as.numeric(pred), 
+                      labels = as.factor(real))
+# prediction 객체를 활용하여 performance 객체를 생성합니다. 
+perform <- performance(prediction.obj = predObj, measure = 'tpr', x.measure = 'fpr')
+# ROC 커브를 그립니다.
+plot(x = perform, main = str_c('[ROC & AUROC] ', compNm))
+# 왼쪽 아래 모서리에서 오른쪽 위 모서리를 잇는 대각선을 추가합니다. 
+lines(x = c(0, 1), y = c(0, 1), col = 'red', lty = 2)
+# AUROC를 계산하고 ROC 커브 위에 출력합니다.
+auroc <- auc(response = as.factor(real), 
+             predictor = as.numeric(pred)) %>% 
+  round(digits = 4L)
+text(x = 0.9, y = 0, labels = str_c('AUROC : ', auroc), col = 'red')
+print(x = auroc)
+```
